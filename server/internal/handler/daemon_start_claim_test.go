@@ -191,11 +191,22 @@ func TestStartClaimWirePrecision(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := newDaemonTokenRequest("POST", "/claim", nil, testWorkspaceID, "claim-wire-test")
-	resp, _, _, _, failure := testHandler.buildClaimedTaskResponse(req, &task, runtime, runtimeID, testWorkspaceID)
-	if failure != nil {
-		t.Fatalf("build claim: %+v", failure)
-	}
-	if !resp.StartClaimSupported || resp.DispatchedAt == nil || *resp.DispatchedAt != generation.Format(time.RFC3339Nano) {
-		t.Fatalf("lost generation precision or capability: supported=%t timestamp=%v", resp.StartClaimSupported, resp.DispatchedAt)
+	// Exercise non-UTC database timestamp locations even on a UTC CI runner.
+	for _, zone := range []*time.Location{time.UTC, time.FixedZone("UTC+08", 8*60*60), time.FixedZone("UTC-07", -7*60*60)} {
+		t.Run(zone.String(), func(t *testing.T) {
+			claimed := task
+			claimed.DispatchedAt.Time = task.DispatchedAt.Time.In(zone)
+			resp, _, _, _, _, failure := testHandler.buildClaimedTaskResponse(req, &claimed, runtime, runtimeID, testWorkspaceID)
+			if failure != nil {
+				t.Fatalf("build claim: %+v", failure)
+			}
+			want := generation.UTC().Format(time.RFC3339Nano)
+			if !resp.StartClaimSupported || resp.DispatchedAt == nil {
+				t.Fatalf("missing claim timestamp or capability: supported=%t timestamp=%v", resp.StartClaimSupported, resp.DispatchedAt)
+			}
+			if *resp.DispatchedAt != want {
+				t.Fatalf("claim timestamp = %q, want canonical UTC with microseconds %q", *resp.DispatchedAt, want)
+			}
+		})
 	}
 }
