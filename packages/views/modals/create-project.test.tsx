@@ -7,6 +7,7 @@ import { renderWithI18n } from "../test/i18n";
 const longRepoUrl =
   "https://github.com/multica-ai/a-very-long-repository-name-that-needs-a-tooltip";
 const apiRepoUrl = "https://github.com/multica-ai/api";
+const apiRepoDescription = "API and daemon runtime";
 const webRepoUrl = "https://github.com/multica-ai/web";
 
 vi.mock("@tanstack/react-query", () => ({
@@ -48,7 +49,11 @@ vi.mock("@multica/core/paths", () => ({
     id: "workspace-1",
     name: "Test Workspace",
     slug: "test-workspace",
-    repos: [{ url: longRepoUrl }, { url: apiRepoUrl }, { url: webRepoUrl }],
+    repos: [
+      { url: longRepoUrl },
+      { url: apiRepoUrl, description: apiRepoDescription },
+      { url: webRepoUrl },
+    ],
   }),
   useWorkspacePaths: () => ({
     projectDetail: (id: string) => `/test-workspace/projects/${id}`,
@@ -214,6 +219,36 @@ describe("CreateProjectModal", () => {
     expect(screen.queryByTitle(longRepoUrl)).toBeNull();
   });
 
+  it("shows a workspace repository description and saves it as the attached resource label", async () => {
+    createProjectMock.mockClear();
+    const user = userEvent.setup();
+    renderWithI18n(<CreateProjectModal onClose={vi.fn()} />);
+
+    expect(screen.getByText(apiRepoDescription)).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText(/project title/i), "API delivery");
+    await user.click(
+      screen.getByRole("button", { name: (name) => name.includes(apiRepoUrl) }),
+    );
+    await user.click(screen.getByRole("button", { name: /^create project$/i }));
+
+    expect(createProjectMock).toHaveBeenCalledTimes(1);
+    const payload = createProjectMock.mock.calls[0]?.[0] as {
+      resources?: Array<{
+        resource_type: string;
+        resource_ref: Record<string, unknown>;
+        label?: string;
+      }>;
+    };
+    expect(payload.resources).toEqual([
+      {
+        resource_type: "github_repo",
+        resource_ref: { url: apiRepoUrl },
+        label: apiRepoDescription,
+      },
+    ]);
+  });
+
   it("reveals the start/due date pickers from the ⋯ overflow menu", async () => {
     const user = userEvent.setup();
     renderWithI18n(<CreateProjectModal onClose={vi.fn()} />);
@@ -257,6 +292,7 @@ describe("CreateProjectModal", () => {
       {
         resource_type: "github_repo",
         resource_ref: { url: apiRepoUrl, ref: "release/2026-09" },
+        label: apiRepoDescription,
       },
     ]);
   });

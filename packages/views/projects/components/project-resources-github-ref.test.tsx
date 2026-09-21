@@ -25,6 +25,11 @@ const PINNED = {
   created_by: "u1",
 };
 
+const AVAILABLE_REPO = {
+  url: "https://github.com/multica-ai/api",
+  description: "API and daemon runtime",
+};
+
 // The common case: no ref, so tasks use the repository's default branch.
 const PLAIN = {
   id: "res-2",
@@ -64,7 +69,7 @@ vi.mock("@multica/core/runtimes", () => ({
 }));
 vi.mock("@multica/core/hooks", () => ({ useWorkspaceId: () => "workspace-1" }));
 vi.mock("@multica/core/paths", () => ({
-  useCurrentWorkspace: () => ({ id: "workspace-1", slug: "ws", repos: [] }),
+  useCurrentWorkspace: () => ({ id: "workspace-1", slug: "ws", repos: [AVAILABLE_REPO] }),
 }));
 vi.mock("../../platform/local-directory", () => ({
   isDesktopShell: () => false,
@@ -88,6 +93,23 @@ describe("ProjectResourcesSection — github_repo checkout ref", () => {
     renderWithI18n(<ProjectResourcesSection projectId="p1" />);
     expect(screen.getByText("Release line")).toBeTruthy();
     expect(screen.getByText("release/2026-09")).toBeTruthy();
+  });
+
+  it("shows a workspace repository description and uses it as the attached resource label", async () => {
+    renderWithI18n(<ProjectResourcesSection projectId="p1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /add resource/i }));
+    expect(screen.getByText(AVAILABLE_REPO.description)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: /multica-ai\/api/i }),
+    );
+
+    await waitFor(() => expect(createMock).toHaveBeenCalledTimes(1));
+    expect(createMock.mock.calls[0]?.[0]).toEqual({
+      resource_type: "github_repo",
+      resource_ref: { url: AVAILABLE_REPO.url },
+      label: AVAILABLE_REPO.description,
+    });
   });
 
   it("saves a new ref while preserving the rest of the stored ref", async () => {

@@ -182,13 +182,15 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
   const filteredRepos =
     workspace?.repos?.filter((repo) => repo.url.toLowerCase().includes(repoQuery)) ?? [];
 
-  const handleAttach = async (url: string, ref?: string) => {
+  const handleAttach = async (url: string, ref?: string, description?: string) => {
+    const label = description?.trim();
     try {
       await createResource.mutateAsync({
         resource_type: "github_repo",
         // Omit the key entirely when empty rather than sending "": an absent
         // ref is what "use the default branch" looks like on the wire.
         resource_ref: ref ? { url, ref } : { url },
+        ...(label ? { label } : {}),
       });
       toast.success(t(($) => $.resources.toast_attached));
     } catch (err) {
@@ -478,20 +480,29 @@ export function ProjectResourcesSection({ projectId }: { projectId: string }) {
                           aria-disabled={isDisabled}
                           onClick={async () => {
                             if (isDisabled) return;
-                            await handleAttach(repo.url);
+                            await handleAttach(repo.url, undefined, repo.description);
                             setAddOpen(false);
                           }}
                           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-caption text-left hover:bg-accent transition-colors aria-disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-transparent"
                         >
                           <FolderGit className="size-3.5" />
-                          <Tooltip>
-                            <TooltipTrigger
-                              render={
-                                <span className="truncate flex-1">{githubShortLabel(repo.url)}</span>
-                              }
-                            />
-                            <TooltipContent side="top">{repo.url}</TooltipContent>
-                          </Tooltip>
+                          <span className="min-w-0 flex-1">
+                            <Tooltip>
+                              <TooltipTrigger
+                                render={
+                                  <span className="block truncate">
+                                    {githubShortLabel(repo.url)}
+                                  </span>
+                                }
+                              />
+                              <TooltipContent side="top">{repo.url}</TooltipContent>
+                            </Tooltip>
+                            {repo.description?.trim() && (
+                              <span className="block truncate text-micro text-muted-foreground">
+                                {repo.description.trim()}
+                              </span>
+                            )}
+                          </span>
                           {isAttached && (
                             <span className="text-micro text-muted-foreground">
                               {t(($) => $.resources.attached_badge)}
