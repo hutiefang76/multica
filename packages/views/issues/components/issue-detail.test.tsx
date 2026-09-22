@@ -169,6 +169,10 @@ vi.mock("../../editor", async () => ({
   // image-sequence-context.test.tsx against the real provider.
   ImageSequenceProvider: ({ children }: { children: React.ReactNode }) =>
     children,
+  AttachmentDownloadProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
+  Attachment: ({ attachment }: { attachment: { kind: "record"; attachment: { filename: string } } }) =>
+    <div data-testid="attachment-card">{attachment.attachment.filename}</div>,
   isPreviewable: () => false,
   ReadonlyContent: ({ content }: { content: string }) => {
     readonlyContentRenders.push(content);
@@ -688,6 +692,7 @@ describe("IssueDetail (shared)", () => {
     // /timeline returns the entries flat in chronological order (oldest first).
     mockApiObj.listTimeline.mockResolvedValue(mockTimeline);
     mockApiObj.listIssueReactions.mockResolvedValue([]);
+    mockApiObj.listAttachments.mockResolvedValue([]);
     mockApiObj.listIssueSubscribers.mockResolvedValue([]);
     mockApiObj.listChildIssues.mockResolvedValue({ issues: [] });
     mockApiObj.getChildIssueProgress.mockResolvedValue({ progress: [] });
@@ -818,6 +823,26 @@ describe("IssueDetail (shared)", () => {
     expect(screen.queryByTestId("title-editor")).not.toBeInTheDocument();
     expect(screen.getAllByTestId("rich-text-editor")).toHaveLength(1);
     expect(contentEditorMounts.count).toBe(1);
+  });
+
+  it("renders standalone issue attachments created outside the description", async () => {
+    mockApiObj.listAttachments.mockResolvedValue([
+      {
+        id: "issue-attachment-1",
+        issue_id: "issue-1",
+        comment_id: null,
+        url: "/uploads/evidence.png",
+        download_url: "/api/attachments/issue-attachment-1/download",
+        markdown_url: "/api/attachments/issue-attachment-1/download",
+        filename: "evidence.png",
+        content_type: "image/png",
+        size_bytes: 1024,
+      },
+    ]);
+
+    renderIssueDetail();
+
+    expect(await screen.findByTestId("attachment-card")).toHaveTextContent("evidence.png");
   });
 
   it("reconciles a cached list snapshot so source context appears on first entry", async () => {
