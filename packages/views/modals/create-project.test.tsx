@@ -219,7 +219,7 @@ describe("CreateProjectModal", () => {
     expect(screen.queryByTitle(longRepoUrl)).toBeNull();
   });
 
-  it("shows a workspace repository description and saves it as the attached resource label", async () => {
+  it("shows a workspace repository description without copying it to the resource label", async () => {
     createProjectMock.mockClear();
     const user = userEvent.setup();
     renderWithI18n(<CreateProjectModal onClose={vi.fn()} />);
@@ -237,14 +237,12 @@ describe("CreateProjectModal", () => {
       resources?: Array<{
         resource_type: string;
         resource_ref: Record<string, unknown>;
-        label?: string;
       }>;
     };
     expect(payload.resources).toEqual([
       {
         resource_type: "github_repo",
         resource_ref: { url: apiRepoUrl },
-        label: apiRepoDescription,
       },
     ]);
   });
@@ -292,7 +290,6 @@ describe("CreateProjectModal", () => {
       {
         resource_type: "github_repo",
         resource_ref: { url: apiRepoUrl, ref: "release/2026-09" },
-        label: apiRepoDescription,
       },
     ]);
   });

@@ -359,13 +359,11 @@ export function CreateProjectModal({ onClose }: { onClose: () => void }) {
     if (sourceMode === "repos" && selectedRepos.length > 0) {
       resources = selectedRepos.map((url) => {
         const ref = repoRefs[url]?.trim();
-        const label = workspaceRepos.find((repo) => repo.url === url)?.description?.trim();
         return {
           resource_type: "github_repo" as const,
           // Omit the key entirely when empty: an absent ref is what "use the
           // default branch" looks like on the wire.
           resource_ref: ref ? { url, ref } : { url },
-          ...(label ? { label } : {}),
         };
       });
     } else if (
