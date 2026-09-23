@@ -8511,8 +8511,10 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, slot i
 	layerCustomEnvAndHermesHome(agentEnv, agentCustomEnv, env.HermesHome, d.logger)
 	// Repo checkouts happen on demand after the agent starts. Give only this
 	// task's Git subprocesses an effective ignore file before any checkout.
-	if err := repocache.ConfigureAgentGitExcludes(taskTempDir, agentEnv); err != nil {
-		return TaskResult{}, fmt.Errorf("configure agent Git excludes: %w", err)
+	if !env.LocalDirectory {
+		if err := repocache.ConfigureAgentGitExcludes(taskTempDir, agentEnv); err != nil {
+			return TaskResult{}, fmt.Errorf("configure agent Git excludes: %w", err)
+		}
 	}
 	if provider == "reasonix" {
 		reasonixStateHome, err := prepareReasonixTaskStateHome(d.cfg.Profile, task.RuntimeID, task.AgentID)

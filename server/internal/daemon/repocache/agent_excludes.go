@@ -30,7 +30,7 @@ var agentGitExcludePatterns = []string{
 // task-scoped global excludes file. A checkout may happen after the agent has
 // started, so the Git setting must be present in the agent environment before
 // its first command, rather than attached to an already-created worktree.
-func ConfigureAgentGitExcludes(taskTempDir string, agentEnv map[string]string) error {
+func ConfigureAgentGitExcludes(taskTempDir string, agentEnv map[string]string) (retErr error) {
 	if agentEnv == nil {
 		return errors.New("agent environment is required")
 	}
@@ -46,9 +46,15 @@ func ConfigureAgentGitExcludes(taskTempDir string, agentEnv map[string]string) e
 	if err != nil {
 		return fmt.Errorf("create task Git excludes: %w", err)
 	}
+	previousParameters, hadParameters := agentEnv["GIT_CONFIG_PARAMETERS"]
 	defer func() {
-		if err != nil {
+		if retErr != nil {
 			_ = os.Remove(f.Name())
+			if hadParameters {
+				agentEnv["GIT_CONFIG_PARAMETERS"] = previousParameters
+			} else {
+				delete(agentEnv, "GIT_CONFIG_PARAMETERS")
+			}
 		}
 	}()
 	var content strings.Builder
@@ -78,6 +84,16 @@ func ConfigureAgentGitExcludes(taskTempDir string, agentEnv map[string]string) e
 	}
 	parameters += quoteGitConfigParameter("core.excludesFile=" + f.Name())
 	agentEnv["GIT_CONFIG_PARAMETERS"] = parameters
+	verify := exec.Command("git", "config", "--path", "--get", "core.excludesFile")
+	verify.Dir = filepath.VolumeName(os.TempDir()) + string(os.PathSeparator)
+	verify.Env = append(os.Environ(), envEntries(agentEnv)...)
+	resolved, verifyErr := verify.Output()
+	if verifyErr != nil {
+		return fmt.Errorf("verify task Git excludes: %w", verifyErr)
+	}
+	if strings.TrimSpace(string(resolved)) != f.Name() {
+		return errors.New("task Git excludes were overridden by another Git setting")
+	}
 	return nil
 }
 
