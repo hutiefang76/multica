@@ -240,9 +240,6 @@ export function ManualCreatePanel({
   const setActiveMode = useIssueDraftStore((s) => s.setActiveMode);
   const clearDraft = useIssueDraftStore((s) => s.clearDraft);
   const setLastAssignee = useIssueDraftStore((s) => s.setLastAssignee);
-  const setLastStatus = useIssueDraftStore((s) => s.setLastStatus);
-  const setLastStage = useIssueDraftStore((s) => s.setLastStage);
-  const stageForParent = useIssueDraftStore((s) => s.stageForParent);
   const setLastMode = useCreateModeStore((s) => s.setLastMode);
   const keepOpen = useQuickCreateStore((s) => s.keepOpen);
   const setKeepOpen = useQuickCreateStore((s) => s.setKeepOpen);
@@ -293,12 +290,9 @@ export function ManualCreatePanel({
   const parentIssueLocked = anchorCommentId !== null
     && typeof data?.parent_issue_id === "string"
     && data.parent_issue_id.length > 0;
-  // Stage only applies to a sub-issue. Reuse a submitted choice for the same
-  // parent, but never carry a stage onto a different parent's children.
+  // Stage belongs to this create session and only applies to a sub-issue.
   const [stage, setStage] = useState<number | null>(
-    typeof data?.stage === "number"
-      ? (data.stage as number)
-      : stageForParent((data?.parent_issue_id as string) || undefined),
+    typeof data?.stage === "number" ? (data.stage as number) : null,
   );
   const [parentPickerOpen, setParentPickerOpen] = useState(false);
   // Toolbar fields hidden via Settings → Preferences → Issue creation reuse the overflow reveal
@@ -393,7 +387,7 @@ export function ManualCreatePanel({
   const updateProject = (id?: string) => { setProjectId(id); setShared({ projectId: id }); };
   const updateParent = (id?: string) => {
     setParentIssueId(id);
-    setStage(stageForParent(id));
+    setStage(null);
   };
   const updateStartDate = (v: string | null) => { setStartDate(v); setManual({ startDate: v }); };
   const updateDueDate = (v: string | null) => { setDueDate(v); setShared({ dueDate: v }); };
@@ -437,11 +431,9 @@ export function ManualCreatePanel({
     setPropertyErrorId(null);
     setUnavailablePropertyRemoved(false);
     setProjectId(undefined);
-    setParentIssueId(undefined);
-    setStage(null);
     setChildIssues([]);
-    // Keep the just-used assignee for the next issue in the batch; reset
-    // everything else across the manual + shared slots.
+    // Keep status and assignee in this batch. Parent and stage stay in local
+    // state, while other manual and shared fields reset for the next issue.
     setManual({
       title: "",
       description: "",
@@ -460,6 +452,7 @@ export function ManualCreatePanel({
     });
     descEditorRef.current?.clearContent();
     setFormResetKey((key) => key + 1);
+    batchContinuationRef.current = true;
   };
 
   // Manual create runs through the shared await-then-render composer contract
@@ -473,10 +466,16 @@ export function ManualCreatePanel({
   // object identity at submit; success clears ONLY an untouched draft —
   // whether the edit came mid-flight or from a reopened dialog.
   const mountedRef = useRef(true);
+  const batchContinuationRef = useRef(false);
   useLayoutEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      // A blank keep-open form is only a batch continuation. If it closes
+      // without edits, the next fresh dialog starts from the usual todo draft.
+      if (batchContinuationRef.current && !useIssueDraftStore.getState().hasDraft()) {
+        useIssueDraftStore.getState().clearDraft();
+      }
     };
   }, []);
   const submittedDraftRef = useRef<IssueCreateDraft | null>(null);
@@ -766,11 +765,8 @@ export function ManualCreatePanel({
     }
   },
     onAccepted: () => {
-      // These preferences derive from the SUBMITTED values, not the live
-      // draft — an issue was created, so record them regardless of the guard.
+      // Only the assignee persists across independent create sessions.
       setLastAssignee(assigneeType, assigneeId);
-      setLastStatus(status);
-      if (parentIssueId) setLastStage(parentIssueId, stage);
       setLastMode("manual");
       // Success may only consume the draft it submitted (MUL-5181 P0): any
       // edit after the submit snapshot — typing while the request is in

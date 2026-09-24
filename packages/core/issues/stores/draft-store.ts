@@ -106,9 +106,6 @@ interface IssueDraftStore {
   // choice instead of always opening with no assignee.
   lastAssigneeType?: IssueAssigneeType;
   lastAssigneeId?: string;
-  lastStatus: IssueStatus;
-  lastStage: number | null;
-  lastStageParentIssueId?: string;
   setShared: (patch: Partial<IssueCreateShared>) => void;
   setManual: (patch: Partial<IssueCreateManual>) => void;
   setAgent: (patch: Partial<IssueCreateAgent>) => void;
@@ -117,9 +114,6 @@ interface IssueDraftStore {
   beginIsolatedDraft: () => void;
   endIsolatedDraft: () => void;
   setLastAssignee: (type?: IssueAssigneeType, id?: string) => void;
-  setLastStatus: (status: IssueStatus) => void;
-  setLastStage: (parentIssueId: string, stage: number | null) => void;
-  stageForParent: (parentIssueId?: string) => number | null;
   hasDraft: () => boolean;
 }
 
@@ -184,15 +178,24 @@ function migrateDraft(raw: unknown): IssueCreateDraft {
   };
 }
 
+function hasDraftContent(draft: IssueCreateDraft): boolean {
+  const { manual, agent, shared } = draft;
+  return !!(
+    manual.title ||
+    manual.description ||
+    agent.prompt ||
+    Object.keys(manual.propertyValues).length > 0 ||
+    // Recoverable uploads only; failed/interrupted remnants do not pin a draft.
+    shared.attachments.some((u) => u.status === "uploaded" || u.status === "uploading")
+  );
+}
+
 export const useIssueDraftStore = create<IssueDraftStore>()(
   persist(
     (set, get) => ({
       draft: migrateDraft(undefined),
       lastAssigneeType: undefined,
       lastAssigneeId: undefined,
-      lastStatus: "todo",
-      lastStage: null,
-      lastStageParentIssueId: undefined,
       setShared: (patch) =>
         set((s) => ({ draft: { ...s.draft, shared: { ...s.draft.shared, ...patch } } })),
       setManual: (patch) =>
@@ -207,7 +210,6 @@ export const useIssueDraftStore = create<IssueDraftStore>()(
             shared: emptyShared(),
             manual: {
               ...emptyManual(),
-              status: s.lastStatus,
               assigneeType: s.lastAssigneeType,
               assigneeId: s.lastAssigneeId,
             },
@@ -238,24 +240,8 @@ export const useIssueDraftStore = create<IssueDraftStore>()(
           : s),
       setLastAssignee: (type, id) =>
         set({ lastAssigneeType: type, lastAssigneeId: id }),
-      setLastStatus: (status) => set({ lastStatus: status }),
-      setLastStage: (parentIssueId, stage) =>
-        set({ lastStageParentIssueId: parentIssueId, lastStage: stage }),
-      stageForParent: (parentIssueId) => {
-        const { lastStage, lastStageParentIssueId } = get();
-        return parentIssueId && parentIssueId === lastStageParentIssueId ? lastStage : null;
-      },
       hasDraft: () => {
-        const { manual, agent, shared } = get().draft;
-        return !!(
-          manual.title ||
-          manual.description ||
-          agent.prompt ||
-          Object.keys(manual.propertyValues).length > 0 ||
-          // Recoverable uploads only: a failed/interrupted remnant the user
-          // never dismissed must not pin the sidebar's draft dot forever.
-          shared.attachments.some((u) => u.status === "uploaded" || u.status === "uploading")
-        );
+        return hasDraftContent(get().draft);
       },
     }),
     {
@@ -264,24 +250,26 @@ export const useIssueDraftStore = create<IssueDraftStore>()(
       // An isolated source-context draft must never reach localStorage. Persist
       // the ordinary backup throughout that session; a crash/reload therefore
       // restores the user's normal create draft, not source-specific input.
-      partialize: (state) => ({
-        draft: state.isolatedDraftBackup ?? state.draft,
-        lastAssigneeType: state.lastAssigneeType,
-        lastAssigneeId: state.lastAssigneeId,
-        lastStatus: state.lastStatus,
-        lastStage: state.lastStage,
-        lastStageParentIssueId: state.lastStageParentIssueId,
-      }),
+      partialize: (state) => {
+        const draft = state.isolatedDraftBackup ?? state.draft;
+        return {
+          // Keep a batch's status in memory while the dialog stays open, but
+          // a blank continuation must rehydrate as a fresh todo create.
+          draft: hasDraftContent(draft)
+            ? draft
+            : { ...draft, manual: { ...draft.manual, status: "todo" as const } },
+          lastAssigneeType: state.lastAssigneeType,
+          lastAssigneeId: state.lastAssigneeId,
+        };
+      },
       merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<IssueDraftStore> & {
           draft?: unknown;
         };
         return {
           ...currentState,
-          ...persisted,
-          lastStatus: persisted.lastStatus ?? "todo",
-          lastStage: persisted.lastStage ?? null,
-          lastStageParentIssueId: persisted.lastStageParentIssueId,
+          lastAssigneeType: persisted.lastAssigneeType,
+          lastAssigneeId: persisted.lastAssigneeId,
           draft: migrateDraft(persisted.draft),
         };
       },
@@ -303,9 +291,6 @@ registerDraftCleanup({
       draft: migrateDraft(undefined),
       lastAssigneeType: undefined,
       lastAssigneeId: undefined,
-      lastStatus: "todo",
-      lastStage: null,
-      lastStageParentIssueId: undefined,
       isolatedDraftBackup: undefined,
     }),
 });

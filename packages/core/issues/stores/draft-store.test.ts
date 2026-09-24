@@ -54,9 +54,6 @@ const RESET_STATE = {
   },
   lastAssigneeType: undefined,
   lastAssigneeId: undefined,
-  lastStatus: "todo" as const,
-  lastStage: null,
-  lastStageParentIssueId: undefined,
 };
 
 describe("issue draft store — last assignee", () => {
@@ -78,42 +75,27 @@ describe("issue draft store — last assignee", () => {
     expect(draft.manual.assigneeId).toBe("alice");
   });
 
-  it("clearDraft prefills the last submitted status, not an unsubmitted edit", () => {
-    const { setManual, setLastStatus, clearDraft } = useIssueDraftStore.getState();
-    setLastStatus("in_progress");
+  it("clearDraft resets status for a fresh create", () => {
+    const { setManual, clearDraft } = useIssueDraftStore.getState();
     setManual({ status: "done" });
     clearDraft();
 
+    expect(useIssueDraftStore.getState().draft.manual.status).toBe("todo");
+  });
+
+  it("persists todo for a blank batch continuation but retains a started draft", async () => {
+    setCurrentWorkspace("batch", "ws_batch");
+    await flush();
+    await flush();
+
+    const store = useIssueDraftStore.getState();
+    store.setManual({ status: "in_progress" });
     expect(useIssueDraftStore.getState().draft.manual.status).toBe("in_progress");
-  });
+    const storageKey = "multica_issue_draft:batch";
+    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}").state.draft.manual.status).toBe("todo");
 
-  it("remembers a stage only for the parent under which it was submitted", () => {
-    const { setLastStage } = useIssueDraftStore.getState();
-    setLastStage("parent-a", 3);
-
-    expect(useIssueDraftStore.getState().stageForParent("parent-a")).toBe(3);
-    expect(useIssueDraftStore.getState().stageForParent("parent-b")).toBeNull();
-    expect(useIssueDraftStore.getState().stageForParent(undefined)).toBeNull();
-  });
-
-  it("keeps submitted defaults in their workspace", async () => {
-    setCurrentWorkspace("acme", "ws_a");
-    await flush();
-    const acme = useIssueDraftStore.getState();
-    acme.setLastStatus("in_progress");
-    acme.setLastStage("parent-a", 2);
-
-    setCurrentWorkspace("beta", "ws_b");
-    await flush();
-    await flush();
-    expect(useIssueDraftStore.getState().lastStatus).toBe("todo");
-    expect(useIssueDraftStore.getState().stageForParent("parent-a")).toBeNull();
-
-    setCurrentWorkspace("acme", "ws_a");
-    await flush();
-    await flush();
-    expect(useIssueDraftStore.getState().lastStatus).toBe("in_progress");
-    expect(useIssueDraftStore.getState().stageForParent("parent-a")).toBe(2);
+    store.setManual({ title: "Unfinished next issue" });
+    expect(JSON.parse(localStorage.getItem(storageKey) ?? "{}").state.draft.manual.status).toBe("in_progress");
     setCurrentWorkspace(null, null);
   });
 
@@ -252,6 +234,35 @@ describe("issue draft store — legacy rehydrate", () => {
 
   afterEach(() => {
     setCurrentWorkspace(null, null);
+  });
+
+  it("drops obsolete status and stage preferences from persisted state", async () => {
+    localStorage.setItem(
+      "multica_issue_draft:legacy-pref",
+      JSON.stringify({
+        state: {
+          draft: { manual: { status: "todo" } },
+          lastStatus: "done",
+          lastStage: 3,
+          lastStageParentIssueId: "parent-a",
+        },
+        version: 0,
+      }),
+    );
+
+    setCurrentWorkspace("legacy-pref", "ws_pref");
+    await flush();
+    await flush();
+
+    const state = useIssueDraftStore.getState();
+    expect("lastStatus" in state).toBe(false);
+    expect("lastStage" in state).toBe(false);
+    expect("lastStageParentIssueId" in state).toBe(false);
+    state.setManual({ title: "new draft" });
+    const stored = JSON.parse(localStorage.getItem("multica_issue_draft:legacy-pref") ?? "{}");
+    expect(stored.state).not.toHaveProperty("lastStatus");
+    expect(stored.state).not.toHaveProperty("lastStage");
+    expect(stored.state).not.toHaveProperty("lastStageParentIssueId");
   });
 
   it("migrates a pre-MUL-5181 flat draft into the shared/manual slots", async () => {
@@ -424,19 +435,15 @@ describe("issue draft store — logout cleanup", () => {
   });
 
   it("registered reset wipes the last-assignee preference, not just the draft", () => {
-    const { setManual, setLastAssignee, setLastStatus, setLastStage } = useIssueDraftStore.getState();
+    const { setManual, setLastAssignee } = useIssueDraftStore.getState();
     setManual({ title: "wip", assigneeType: "member", assigneeId: "alice" });
     setLastAssignee("member", "alice");
-    setLastStatus("in_progress");
-    setLastStage("parent-a", 2);
 
     resetAllRegisteredDrafts();
 
     const state = useIssueDraftStore.getState();
     expect(state.lastAssigneeType).toBeUndefined();
     expect(state.lastAssigneeId).toBeUndefined();
-    expect(state.lastStatus).toBe("todo");
-    expect(state.stageForParent("parent-a")).toBeNull();
     // clearDraft() would have re-seeded the manual slot from lastAssignee —
     // the logout reset must not hand the next login a previous user's pick.
     expect(state.draft.manual.assigneeType).toBeUndefined();
