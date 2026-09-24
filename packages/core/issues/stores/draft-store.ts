@@ -106,6 +106,9 @@ interface IssueDraftStore {
   // choice instead of always opening with no assignee.
   lastAssigneeType?: IssueAssigneeType;
   lastAssigneeId?: string;
+  lastStatus: IssueStatus;
+  lastStage: number | null;
+  lastStageParentIssueId?: string;
   setShared: (patch: Partial<IssueCreateShared>) => void;
   setManual: (patch: Partial<IssueCreateManual>) => void;
   setAgent: (patch: Partial<IssueCreateAgent>) => void;
@@ -114,6 +117,9 @@ interface IssueDraftStore {
   beginIsolatedDraft: () => void;
   endIsolatedDraft: () => void;
   setLastAssignee: (type?: IssueAssigneeType, id?: string) => void;
+  setLastStatus: (status: IssueStatus) => void;
+  setLastStage: (parentIssueId: string, stage: number | null) => void;
+  stageForParent: (parentIssueId?: string) => number | null;
   hasDraft: () => boolean;
 }
 
@@ -184,6 +190,9 @@ export const useIssueDraftStore = create<IssueDraftStore>()(
       draft: migrateDraft(undefined),
       lastAssigneeType: undefined,
       lastAssigneeId: undefined,
+      lastStatus: "todo",
+      lastStage: null,
+      lastStageParentIssueId: undefined,
       setShared: (patch) =>
         set((s) => ({ draft: { ...s.draft, shared: { ...s.draft.shared, ...patch } } })),
       setManual: (patch) =>
@@ -198,6 +207,7 @@ export const useIssueDraftStore = create<IssueDraftStore>()(
             shared: emptyShared(),
             manual: {
               ...emptyManual(),
+              status: s.lastStatus,
               assigneeType: s.lastAssigneeType,
               assigneeId: s.lastAssigneeId,
             },
@@ -228,6 +238,13 @@ export const useIssueDraftStore = create<IssueDraftStore>()(
           : s),
       setLastAssignee: (type, id) =>
         set({ lastAssigneeType: type, lastAssigneeId: id }),
+      setLastStatus: (status) => set({ lastStatus: status }),
+      setLastStage: (parentIssueId, stage) =>
+        set({ lastStageParentIssueId: parentIssueId, lastStage: stage }),
+      stageForParent: (parentIssueId) => {
+        const { lastStage, lastStageParentIssueId } = get();
+        return parentIssueId && parentIssueId === lastStageParentIssueId ? lastStage : null;
+      },
       hasDraft: () => {
         const { manual, agent, shared } = get().draft;
         return !!(
@@ -251,6 +268,9 @@ export const useIssueDraftStore = create<IssueDraftStore>()(
         draft: state.isolatedDraftBackup ?? state.draft,
         lastAssigneeType: state.lastAssigneeType,
         lastAssigneeId: state.lastAssigneeId,
+        lastStatus: state.lastStatus,
+        lastStage: state.lastStage,
+        lastStageParentIssueId: state.lastStageParentIssueId,
       }),
       merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<IssueDraftStore> & {
@@ -259,6 +279,9 @@ export const useIssueDraftStore = create<IssueDraftStore>()(
         return {
           ...currentState,
           ...persisted,
+          lastStatus: persisted.lastStatus ?? "todo",
+          lastStage: persisted.lastStage ?? null,
+          lastStageParentIssueId: persisted.lastStageParentIssueId,
           draft: migrateDraft(persisted.draft),
         };
       },
@@ -280,6 +303,9 @@ registerDraftCleanup({
       draft: migrateDraft(undefined),
       lastAssigneeType: undefined,
       lastAssigneeId: undefined,
+      lastStatus: "todo",
+      lastStage: null,
+      lastStageParentIssueId: undefined,
       isolatedDraftBackup: undefined,
     }),
 });

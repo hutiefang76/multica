@@ -54,6 +54,9 @@ const RESET_STATE = {
   },
   lastAssigneeType: undefined,
   lastAssigneeId: undefined,
+  lastStatus: "todo" as const,
+  lastStage: null,
+  lastStageParentIssueId: undefined,
 };
 
 describe("issue draft store — last assignee", () => {
@@ -73,6 +76,45 @@ describe("issue draft store — last assignee", () => {
     expect(draft.manual.title).toBe("");
     expect(draft.manual.assigneeType).toBe("member");
     expect(draft.manual.assigneeId).toBe("alice");
+  });
+
+  it("clearDraft prefills the last submitted status, not an unsubmitted edit", () => {
+    const { setManual, setLastStatus, clearDraft } = useIssueDraftStore.getState();
+    setLastStatus("in_progress");
+    setManual({ status: "done" });
+    clearDraft();
+
+    expect(useIssueDraftStore.getState().draft.manual.status).toBe("in_progress");
+  });
+
+  it("remembers a stage only for the parent under which it was submitted", () => {
+    const { setLastStage } = useIssueDraftStore.getState();
+    setLastStage("parent-a", 3);
+
+    expect(useIssueDraftStore.getState().stageForParent("parent-a")).toBe(3);
+    expect(useIssueDraftStore.getState().stageForParent("parent-b")).toBeNull();
+    expect(useIssueDraftStore.getState().stageForParent(undefined)).toBeNull();
+  });
+
+  it("keeps submitted defaults in their workspace", async () => {
+    setCurrentWorkspace("acme", "ws_a");
+    await flush();
+    const acme = useIssueDraftStore.getState();
+    acme.setLastStatus("in_progress");
+    acme.setLastStage("parent-a", 2);
+
+    setCurrentWorkspace("beta", "ws_b");
+    await flush();
+    await flush();
+    expect(useIssueDraftStore.getState().lastStatus).toBe("todo");
+    expect(useIssueDraftStore.getState().stageForParent("parent-a")).toBeNull();
+
+    setCurrentWorkspace("acme", "ws_a");
+    await flush();
+    await flush();
+    expect(useIssueDraftStore.getState().lastStatus).toBe("in_progress");
+    expect(useIssueDraftStore.getState().stageForParent("parent-a")).toBe(2);
+    setCurrentWorkspace(null, null);
   });
 
   it("clearDraft yields an empty assignee when none has ever been remembered", () => {
@@ -382,15 +424,19 @@ describe("issue draft store — logout cleanup", () => {
   });
 
   it("registered reset wipes the last-assignee preference, not just the draft", () => {
-    const { setManual, setLastAssignee } = useIssueDraftStore.getState();
+    const { setManual, setLastAssignee, setLastStatus, setLastStage } = useIssueDraftStore.getState();
     setManual({ title: "wip", assigneeType: "member", assigneeId: "alice" });
     setLastAssignee("member", "alice");
+    setLastStatus("in_progress");
+    setLastStage("parent-a", 2);
 
     resetAllRegisteredDrafts();
 
     const state = useIssueDraftStore.getState();
     expect(state.lastAssigneeType).toBeUndefined();
     expect(state.lastAssigneeId).toBeUndefined();
+    expect(state.lastStatus).toBe("todo");
+    expect(state.stageForParent("parent-a")).toBeNull();
     // clearDraft() would have re-seeded the manual slot from lastAssignee —
     // the logout reset must not hand the next login a previous user's pick.
     expect(state.draft.manual.assigneeType).toBeUndefined();

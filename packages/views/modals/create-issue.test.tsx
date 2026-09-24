@@ -42,6 +42,8 @@ const mockSetAgent = vi.hoisted(() => vi.fn());
 const mockSetActiveMode = vi.hoisted(() => vi.fn());
 const mockClearDraft = vi.hoisted(() => vi.fn());
 const mockSetLastAssignee = vi.hoisted(() => vi.fn());
+const mockSetLastStatus = vi.hoisted(() => vi.fn());
+const mockSetLastStage = vi.hoisted(() => vi.fn());
 const mockSetKeepOpen = vi.hoisted(() => vi.fn());
 const mockToastCustom = vi.hoisted(() => vi.fn());
 const mockToastDismiss = vi.hoisted(() => vi.fn());
@@ -127,7 +129,7 @@ const emptyIssueDraft = () => ({
   manual: {
     title: "",
     description: "",
-    status: "todo" as const,
+    status: "todo" as string,
     startDate: null as string | null,
     assigneeType: undefined as "agent" | "squad" | "member" | undefined,
     assigneeId: undefined as string | undefined,
@@ -146,12 +148,19 @@ const mockDraftStore = {
   draft: emptyIssueDraft(),
   lastAssigneeType: undefined as "agent" | "squad" | "member" | undefined,
   lastAssigneeId: undefined as string | undefined,
+  lastStatus: "todo" as string,
+  lastStage: null as number | null,
+  lastStageParentIssueId: undefined as string | undefined,
   setShared: mockSetShared,
   setManual: mockSetManual,
   setAgent: mockSetAgent,
   setActiveMode: mockSetActiveMode,
   clearDraft: mockClearDraft,
   setLastAssignee: mockSetLastAssignee,
+  setLastStatus: mockSetLastStatus,
+  setLastStage: mockSetLastStage,
+  stageForParent: (parentId?: string) => parentId === mockDraftStore.lastStageParentIssueId
+    ? mockDraftStore.lastStage : null,
   hasDraft: () => false,
 };
 
@@ -634,6 +643,9 @@ describe("CreateIssueModal", () => {
     // Reset the unified draft mock so per-test seeding (assignee, project, …)
     // doesn't leak into the next test in the suite.
     mockDraftStore.draft = emptyIssueDraft();
+    mockDraftStore.lastStatus = "todo";
+    mockDraftStore.lastStage = null;
+    mockDraftStore.lastStageParentIssueId = undefined;
     mockSetShared.mockImplementation((patch: Partial<typeof mockDraftStore.draft.shared>) => {
       mockDraftStore.draft.shared = { ...mockDraftStore.draft.shared, ...patch };
     });
@@ -647,6 +659,7 @@ describe("CreateIssueModal", () => {
       const next = emptyIssueDraft();
       next.manual.assigneeType = mockDraftStore.lastAssigneeType;
       next.manual.assigneeId = mockDraftStore.lastAssigneeId;
+      next.manual.status = mockDraftStore.lastStatus;
       mockDraftStore.draft = next;
     });
     mockApiUploadFile.mockResolvedValue({
@@ -743,6 +756,7 @@ describe("CreateIssueModal", () => {
     });
 
     expect(mockSetLastAssignee).toHaveBeenCalledWith(undefined, undefined);
+    expect(mockSetLastStatus).toHaveBeenCalledWith("todo");
     expect(mockClearDraft).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
     expect(mockToastCustom).toHaveBeenCalledTimes(1);
@@ -760,6 +774,43 @@ describe("CreateIssueModal", () => {
 
     expect(mockPush).toHaveBeenCalledWith("/ws-test/issues/issue-123");
     expect(mockToastDismiss).toHaveBeenCalledWith("toast-1");
+  });
+
+  it("remembers submitted status and a sub-issue stage for its parent", async () => {
+    const user = userEvent.setup();
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{
+      parent_issue_id: "parent-1",
+      status: "in_progress",
+      stage: 2,
+    }} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Issue title"), {
+      target: { value: "Follow up" },
+    });
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+
+    await waitFor(() => expect(mockCreateIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "in_progress", parent_issue_id: "parent-1", stage: 2 }),
+    ));
+    expect(mockSetLastStatus).toHaveBeenCalledWith("in_progress");
+    expect(mockSetLastStage).toHaveBeenCalledWith("parent-1", 2);
+  });
+
+  it("prefills a remembered stage only when creating under the same parent", async () => {
+    mockDraftStore.lastStageParentIssueId = "parent-1";
+    mockDraftStore.lastStage = 3;
+    mockDraftStore.draft.manual.status = "in_progress";
+    const user = userEvent.setup();
+    renderModal(<CreateIssueModal onClose={vi.fn()} data={{ parent_issue_id: "parent-1" }} />);
+
+    fireEvent.change(screen.getByPlaceholderText("Issue title"), {
+      target: { value: "Another child" },
+    });
+    await user.click(screen.getByRole("button", { name: "Create Issue" }));
+
+    await waitFor(() => expect(mockCreateIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "in_progress", parent_issue_id: "parent-1", stage: 3 }),
+    ));
   });
 
   it("forwards selected labels in the create payload so they attach in the same transaction", async () => {
