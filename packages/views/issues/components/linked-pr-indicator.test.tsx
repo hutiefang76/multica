@@ -23,6 +23,13 @@ describe("LinkedPRIndicator", () => {
     expect(screen.getByRole("link")).toHaveAttribute("target", "_blank");
   });
 
+  it("labels an open PR with the registered translation", () => {
+    renderWithI18n(<LinkedPRIndicator prs={[pr("open", 7)]} />);
+    expect(screen.getByRole("link", { name: "Pull requests #7 · Open" })).toHaveAttribute(
+      "title", "Pull requests #7 · Open",
+    );
+  });
+
   it("lists every linked PR when there are multiple and marks failed CI", () => {
     renderWithI18n(<LinkedPRIndicator prs={[
       { ...pr("open", 7), checks_rollup: "failure", snapshot_available: true },
