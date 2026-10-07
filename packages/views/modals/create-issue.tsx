@@ -238,6 +238,7 @@ export function ManualCreatePanel({
   const setShared = useIssueDraftStore((s) => s.setShared);
   const setAgent = useIssueDraftStore((s) => s.setAgent);
   const setActiveMode = useIssueDraftStore((s) => s.setActiveMode);
+  const beginBatchContinuation = useIssueDraftStore((s) => s.beginBatchContinuation);
   const clearDraft = useIssueDraftStore((s) => s.clearDraft);
   const setLastAssignee = useIssueDraftStore((s) => s.setLastAssignee);
   const setLastMode = useCreateModeStore((s) => s.setLastMode);
@@ -450,6 +451,11 @@ export function ManualCreatePanel({
       dueDate: null,
       attachments: [],
     });
+    // The reset above is a batch continuation, not user input: record it so a
+    // field the user actually changes afterwards (priority, a date, a label —
+    // anything `hasDraft` alone would not consider content) keeps the draft
+    // recoverable, while a continuation nobody touched is still discarded.
+    beginBatchContinuation();
     descEditorRef.current?.clearContent();
     setFormResetKey((key) => key + 1);
     batchContinuationRef.current = true;
@@ -471,8 +477,9 @@ export function ManualCreatePanel({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // A blank keep-open form is only a batch continuation. If it closes
-      // without edits, the next fresh dialog starts from the usual todo draft.
+      // A keep-open form nobody edited is only a batch continuation. If it
+      // closes without edits, the next fresh dialog starts from the usual todo
+      // draft; a continuation the user did edit reports a draft and survives.
       if (batchContinuationRef.current && !useIssueDraftStore.getState().hasDraft()) {
         useIssueDraftStore.getState().clearDraft();
       }
